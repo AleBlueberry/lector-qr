@@ -1,0 +1,34 @@
+const SPREADSHEET_ID = 'TU_SPREADSHEET_ID';
+const SHEET_NAME = 'Products';
+const EXPECTED_TOKEN = 'CambiarTokenSiDeseas';
+
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents || '{}');
+    if (data.token !== EXPECTED_TOKEN) {
+      return ContentService.createTextOutput(JSON.stringify({status:'error', message:'invalid token'})).setMimeType(ContentService.MimeType.JSON);
+    }
+    const productId = String(data.productId || '').trim();
+    if (!productId) throw new Error('productId missing');
+
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_NAME);
+    const values = sheet.getDataRange().getValues();
+
+    for (let i = 1; i < values.length; i++) {
+      if (String(values[i][0]) === productId) {
+        const current = Number(values[i][2]) || 0; // col C = count
+        const newCount = current + 1;
+        sheet.getRange(i+1, 3).setValue(newCount);
+        sheet.getRange(i+1, 2).setValue(new Date()); // lastScan
+        return ContentService.createTextOutput(JSON.stringify({status:'updated', newCount})).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+    // fila nueva
+    sheet.appendRow([productId, new Date(), 1]);
+    return ContentService.createTextOutput(JSON.stringify({status:'inserted', newCount:1})).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({status:'error', message:err.message})).setMimeType(ContentService.MimeType.JSON);
+  }
+}
