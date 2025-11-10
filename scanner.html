@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Escáner QR - Conteo</title>
+  <style>
+    body { font-family: Arial, sans-serif; display:flex; flex-direction:column; align-items:center; gap:12px; padding:12px; }
+    video { width: 100%; max-width:600px; border-radius:12px; box-shadow: 0 6px 20px rgba(0,0,0,0.12); }
+    #status { font-weight:600; }
+    button { padding:8px 14px; border-radius:8px; border:none; background:#1976d2; color:white; font-size:16px; }
+  </style>
+</head>
+<body>
+  <h2>Escáner QR — Conteo de productos</h2>
+  <video id="video" playsinline autoplay></video>
+  <div id="status">Iniciando cámara…</div>
+  <script src="https://unpkg.com/jsqr/dist/jsQR.js"></script>
+  <script>
+    const video = document.getElementById('video');
+    const status = document.getElementById('status');
+
+    // URL del Google Apps Script (reemplázala por la tuya)
+    const SCRIPT_URL = 'https://script.google.com/macros/s/TU_SCRIPT_ID/exec';
+
+    // start camera
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = stream;
+        await video.play();
+        status.textContent = 'Apunta al QR';
+        requestAnimationFrame(tick);
+      } catch (e) {
+        status.textContent = 'Error accediendo a la cámara: ' + e.message;
+      }
+    }
+
+    // canvas para leer frames
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    let lastScanned = null;
+    let cooldown = false;
+
+    async function tick() {
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        if (code) {
+          const text = code.data.trim();
+          if (!cooldown || text !== lastScanned) {
+            lastScanned = text;
+            cooldown = true;
+            status.textContent = `QR detectado: ${text} — Enviando...`;
+            await sendScan(text);
+            // evita send repetido por 1.2 segundos
+            setTimeout(() => cooldown = false, 1200);
+          }
+        } else {
+          // no QR visible
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+
+    async function sendScan(productId) {
+      try {
+        const payload = { productId: productId, timestamp: new Date().toISOString() };
+        const resp = await fetch(SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const j = await resp.json();
+        if (j.status === 'updated' || j.status === 'inserted') {
+          status.textContent = `OK: ${productId} → ${j.status}. Conteo ahora: ${j.newCount ?? 'desconocido'}`;
+        } else {
+          status.textContent = `Respuesta: ${JSON.stringify(j)}`;
+        }
+      } catch (err) {
+        status.textContent = 'Error enviando: ' + err.message;
+      }
+    }
+
+    startCamera();
+  </script>
+</body>
+</html>
